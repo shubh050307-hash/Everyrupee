@@ -1,10 +1,21 @@
 require("dotenv").config();
 
+console.log("== ENV CHECK ==");
+console.log("GEMINI_API_KEY present:", !!process.env.GEMINI_API_KEY);
+if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "undefined") {
+  console.log("Key starts with:", process.env.GEMINI_API_KEY.substring(0, 5) + "...");
+} else {
+  console.log("🚨 key is missing or undefined string!");
+}
+console.log("===============");
+
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 const { parse } = require("csv-parse/sync");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const YahooFinance = require('yahoo-finance2').default;
+const yahooFinance = new YahooFinance();
 
 // ✅ Initialize the new PDF Extractor safely at the top level
 const { PDFExtract } = require("pdf.js-extract");
@@ -56,7 +67,7 @@ const upload = multer({
 });
 
 async function callGemini(prompt) {
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
   const result = await model.generateContent(prompt);
   const text = result.response.text();
   return text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
@@ -70,31 +81,66 @@ async function callGemini(prompt) {
 app.get("/price/:symbol", async (req, res) => {
   try {
     const symbol = req.params.symbol.toUpperCase() + ".NS";
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}`;
+    console.log(`[PRICE API] Fetching quote for: ${symbol}`);
 
-    const response = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-    });
-
-    const data = await response.json();
-    const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+    // Level 2 Fix: Use yahoo-finance2 for reliability
+    const quote = await yahooFinance.quote(symbol);
+    const price = quote?.regularMarketPrice;
 
     if (!price) {
-      return res.status(400).json({ error: "Invalid symbol or no data" });
+      console.warn(`[PRICE API] No price found for ${symbol}`);
+      return res.status(404).json({ error: "Invalid symbol or no data" });
     }
 
+    console.log(`[PRICE API] SUCCESS: ${symbol} = ₹${price}`);
     res.json({ price, isLive: true });
   } catch (err) {
-    console.error("PRICE API ERROR:", err.message || err);
-    res.status(500).json({ error: "Failed to fetch price" });
+    console.error(`[PRICE API ERROR] for ${req.params.symbol}:`, err.message || err);
+    res.status(500).json({ 
+      error: "Failed to fetch price", 
+      details: err.message || "Internal server error" 
+    });
   }
 });
 
 // ── 2. AI ASSISTANT ENDPOINT (MAIN DASHBOARD CHAT) ──
+// app.post("/ai", async (req, res) => {
+//   try {
+//     const { message, context } = req.body;
+//     if (!message) return res.status(400).json({ reply: "Message is required" });
+
+//     const systemPrompt = `
+// You are a friendly, intelligent, and human-like AI assistant integrated into an investment dashboard.
+// You can handle normal chat and investment analysis.
+// PORTFOLIO DATA: ${context && context.hasData ? JSON.stringify(context, null, 2) : "No portfolio data provided."}
+// `;
+
+//     const model = genAI.getGenerativeModel({
+//       model: "gemini-1.5-flash",
+//       systemInstruction: systemPrompt,
+//     });
+
+//     const result = await model.generateContent(message);
+//     const reply = result?.response?.text() || "No response generated";
+
+//     res.json({ reply });
+//   } catch (error) {
+//     console.error("Gemini AI Error:", error.message, error);
+//     res.status(500).json({ reply: "I'm having trouble connecting right now. Please try again." });
+//   }
+// });
+
+// ── 2. AI ASSISTANT ENDPOINT (MAIN DASHBOARD CHAT) ──
 app.post("/ai", async (req, res) => {
+  console.log("\n[POST /ai] 1. Route hit");
   try {
     const { message, context } = req.body;
-    if (!message) return res.status(400).json({ reply: "Message is required" });
+    console.log("[POST /ai] 2. Payload received. Message size:", message ? message.length : "N/A");
+    
+    if (!message) {
+      console.log("[POST /ai] ❌ Rejecting: missing message");
+      return res.status(400).json({ reply: "Message is required" });
+    }
 
     const systemPrompt = `
 You are a friendly, intelligent, and human-like AI assistant integrated into an investment dashboard.
@@ -102,17 +148,23 @@ You can handle normal chat and investment analysis.
 PORTFOLIO DATA: ${context && context.hasData ? JSON.stringify(context, null, 2) : "No portfolio data provided."}
 `;
 
+    console.log("[POST /ai] 3. Initialize model gemini-1.5-flash");
     const model = genAI.getGenerativeModel({
       model: "gemini-2.5-flash",
       systemInstruction: systemPrompt,
     });
 
+    console.log("[POST /ai] 4. Calling model.generateContent...");
     const result = await model.generateContent(message);
+    
+    console.log("[POST /ai] 5. Response received from Gemini");
     const reply = result?.response?.text() || "No response generated";
 
+    console.log("[POST /ai] 6. Sending successful reply to frontend");
     res.json({ reply });
   } catch (error) {
-    console.error("Gemini AI Error:", error.message || error);
+    console.error("\n[POST /ai] ❌ SEVERE ERROR in /ai route:");
+    console.error(error);
     res.status(500).json({ reply: "I'm having trouble connecting right now. Please try again." });
   }
 });
@@ -235,10 +287,17 @@ ${aisText}
 ${bankText}
     `;
 
-    // Use 2.5-flash strictly for this new feature so nothing else is affected
-const reconcileModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-const result = await reconcileModel.generateContent(prompt);
-const rawResponse = result.response.text().replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+//     // Use 1.5-flash strictly for this new feature so nothing else is affected
+// const reconcileModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+// const result = await reconcileModel.generateContent(prompt);
+// const rawResponse = result.response.text().replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+
+// FIX: Changed model from "gemini-2.5-flash" to "gemini-1.5-flash"
+    const reconcileModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const result = await reconcileModel.generateContent(prompt);
+    const rawResponse = result.response.text().replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+
+
     const parsed = safeParse(rawResponse, { riskScore: "High", riskPercentage: 90, discrepancies: [] });
 
     res.json(parsed);
@@ -333,7 +392,7 @@ app.use((err, req, res, next) => {
 // ==========================================
 // START SERVER
 // ==========================================
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 
 app.listen(PORT, () => {
   console.log(`\n🚀 EveryRupee Server running on http://localhost:${PORT}`);

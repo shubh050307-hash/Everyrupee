@@ -19,15 +19,15 @@
   <ul class="navbar__nav">
     <li><a href="index.html">home</a></li>
     <li><a href="planner.html">Planner</a></li>
-    <li><a href="edcuation.html" >education</a></li>
-    <li><a href="taxassist.html" >taxassist</a></li>
-    <li><a href="investment.html" class="active">investments</a></li>
+    <li><a href="edcuation.html" >Knowledge hub</a></li>
+    <li><a href="taxassist.html" >Tax advisor</a></li>
+    <li><a href="investment.html" class="active">Investments</a></li>
     <li><a href="financial-advisor-match.html" class="er-nav__cta">finhelp</a></li>
 
   </ul>
   <div class="navbar__actions">
     <button class="btn btn-ghost btn-sm" onclick="loadDemoPortfolio()">⚡ Demo Mode</button>
-    <button class="btn btn-gold btn-sm">Sign In</button>
+    <!-- <button class="btn btn-gold btn-sm">Sign In</button> -->
   </div>
 </nav>
 
@@ -503,7 +503,7 @@ async function fetchYahooPrice(symbol) {
 
   try {
     console.log(`[API] Fetching ${symbol} from backend...`);
-    const res = await fetch(`http://localhost:5000/price/${symbol}`);
+    const res = await fetch(`http://localhost:5001/price/${symbol}`);
     const data = await res.json();
 
     if (data.price && !isNaN(data.price)) {
@@ -1193,21 +1193,29 @@ async function sendAIChatMessage(forcedText = null) {
   showAITyping();
   
   try {
-    // GUARANTEED PORT 5000 TO MATCH BACKEND
-    const response = await fetch('http://localhost:5000/ai', {
+    // GUARANTEED PORT 5001 TO MATCH BACKEND
+    const response = await fetch('http://localhost:5001/ai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message, context })
     });
     
-    if (!response.ok) throw new Error('AI Service unreachable');
+    if (!response.ok) {
+      const errText = await response.text();
+      let errMsg = 'AI Service unreachable';
+      try {
+        const errData = JSON.parse(errText);
+        errMsg = errData.reply || errData.error || errMsg;
+      } catch (e) {}
+      throw new Error(errMsg);
+    }
     
     const data = await response.json();
     hideAITyping();
     appendAIMessage(data.reply, 'ai');
     
   } catch (error) {
-    console.warn('AI API Error:', error);
+    console.error(error);
     hideAITyping();
     
     setTimeout(() => {
@@ -1215,7 +1223,7 @@ async function sendAIChatMessage(forcedText = null) {
         appendAIMessage("You don't have any stocks in your portfolio right now! Try clicking **⚡ Demo Mode** or uploading an Excel file first so I have data to analyze.", 'ai');
       } else {
         const valFormatted = context.summary.totalValue.toLocaleString('en-IN', { style: 'currency', currency: 'INR' });
-        appendAIMessage(`*(Fallback Mode)* I can see your portfolio is worth **${valFormatted}** with a health score of **${context.summary.healthScore}/100**. \n\n*Note: To get deep AI analysis, ensure the Node.js backend server is running on port 5000.*`, 'ai');
+        appendAIMessage(`*(Fallback Mode)* I can see your portfolio is worth **${valFormatted}** with a health score of **${context.summary.healthScore}/100**. \n\n*Note: To get deep AI analysis, ensure the Node.js backend server is running on port 5001.*`, 'ai');
       }
     }, 600);
   }
@@ -1302,7 +1310,7 @@ Keep total length under 600 words.`;
 
   // 1. Try existing Node backend
   try {
-    const res = await fetch('http://localhost:5000/ai', {
+    const res = await fetch('http://localhost:5001/ai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: prompt, context: { hasData: true, portfolio: portfolioData, summary: summaryData } })
