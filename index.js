@@ -16,6 +16,7 @@ const { parse } = require("csv-parse/sync");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const YahooFinance = require('yahoo-finance2').default;
 const yahooFinance = new YahooFinance();
+const path = require("path");
 
 // ✅ Initialize the new PDF Extractor safely at the top level
 const { PDFExtract } = require("pdf.js-extract");
@@ -129,6 +130,10 @@ app.get("/price/:symbol", async (req, res) => {
 //     res.status(500).json({ reply: "I'm having trouble connecting right now. Please try again." });
 //   }
 // });
+
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+})
 
 // ── 2. AI ASSISTANT ENDPOINT (MAIN DASHBOARD CHAT) ──
 app.post("/ai", async (req, res) => {
